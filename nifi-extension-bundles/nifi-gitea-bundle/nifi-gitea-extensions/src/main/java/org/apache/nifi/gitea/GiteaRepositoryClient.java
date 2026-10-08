@@ -99,6 +99,7 @@ public class GiteaRepositoryClient implements GitRepositoryClient {
     private static final String FIELD_PUSH = "push";
     private static final String FIELD_ARCHIVED = "archived";
     private static final String FIELD_MIRROR = "mirror";
+    private static final String FIELD_EMPTY = "empty";
     private static final String FIELD_NAME = "name";
     private static final String FIELD_TYPE = "type";
     private static final String FIELD_SHA = "sha";
@@ -402,7 +403,10 @@ public class GiteaRepositoryClient implements GitRepositoryClient {
         final URI uri = repositoryUriBuilder(SEGMENT_CONTENTS, directory).addQueryParameter(PARAM_REF, ref).build();
         try (HttpResponseEntity response = execute(webClientService().get(), uri, null)) {
             if (response.statusCode() == HttpURLConnection.HTTP_NOT_FOUND) {
-                // Directory not found or repository empty
+                // Not Found indicates a missing directory, a missing branch or an empty repository
+                if (isBranchMissing(ref)) {
+                    throw new FlowRegistryException("Branch [%s] not found in repository [%s/%s]".formatted(ref, repoOwner, repoName));
+                }
                 return Set.of();
             } else if (response.statusCode() != HttpURLConnection.HTTP_OK) {
                 throw new FlowRegistryException("Request to [%s] failed - %s".formatted(uri, getErrorMessage(response)));
@@ -419,6 +423,26 @@ public class GiteaRepositoryClient implements GitRepositoryClient {
                 }
             }
             return names;
+        }
+    }
+
+    private boolean isBranchMissing(final String branch) throws IOException, FlowRegistryException {
+        final URI branchUri = repositoryUriBuilder(SEGMENT_BRANCHES, branch).build();
+        try (HttpResponseEntity response = execute(webClientService().get(), branchUri, null)) {
+            if (response.statusCode() == HttpURLConnection.HTTP_OK) {
+                return false;
+            } else if (response.statusCode() != HttpURLConnection.HTTP_NOT_FOUND) {
+                throw new FlowRegistryException("Request to [%s] failed - %s".formatted(branchUri, getErrorMessage(response)));
+            }
+        }
+
+        // Empty repositories have no branches until the first commit creates the default branch
+        final URI repositoryUri = repositoryUriBuilder().build();
+        try (HttpResponseEntity response = execute(webClientService().get(), repositoryUri, null)) {
+            if (response.statusCode() != HttpURLConnection.HTTP_OK) {
+                throw new FlowRegistryException("Request to [%s] failed - %s".formatted(repositoryUri, getErrorMessage(response)));
+            }
+            return !readJson(response, repositoryUri).path(FIELD_EMPTY).asBoolean(false);
         }
     }
 

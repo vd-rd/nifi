@@ -190,13 +190,37 @@ class GiteaRepositoryClientTest {
     }
 
     @Test
-    void testGetTopLevelDirectoryNamesNotFound() throws Exception {
-        final GiteaRepositoryClient client = buildClient(null);
+    void testGetTopLevelDirectoryNamesDirectoryNotFound() throws Exception {
+        final GiteaRepositoryClient client = buildClient("flows");
         enqueue(HttpURLConnection.HTTP_NOT_FOUND, "{\"message\":\"GetContentsOrList\"}");
+        enqueue(HttpURLConnection.HTTP_OK, "{\"name\":\"main\"}");
 
         assertTrue(client.getTopLevelDirectoryNames(BRANCH).isEmpty());
         takeRequest();
-        assertEquals(REPOSITORY_PATH + "/contents?ref=main", takeRequest().getTarget());
+        assertEquals(REPOSITORY_PATH + "/contents/flows?ref=main", takeRequest().getTarget());
+        assertEquals(REPOSITORY_PATH + "/branches/main", takeRequest().getTarget());
+    }
+
+    @Test
+    void testGetTopLevelDirectoryNamesBranchNotFound() throws Exception {
+        final GiteaRepositoryClient client = buildClient(null);
+        enqueue(HttpURLConnection.HTTP_NOT_FOUND, "{\"message\":\"branch does not exist\"}");
+        enqueue(HttpURLConnection.HTTP_NOT_FOUND, "{\"message\":\"branch does not exist\"}");
+        enqueue(HttpURLConnection.HTTP_OK, REPOSITORY_WRITABLE);
+
+        final FlowRegistryException exception = assertThrows(FlowRegistryException.class, () -> client.getTopLevelDirectoryNames("develop"));
+        assertTrue(exception.getMessage().contains("Branch [develop] not found"), exception.getMessage());
+    }
+
+    @Test
+    void testGetTopLevelDirectoryNamesEmptyRepository() throws Exception {
+        final GiteaRepositoryClient client = buildClient(null);
+        enqueue(HttpURLConnection.HTTP_NOT_FOUND, "{\"message\":\"not found\"}");
+        enqueue(HttpURLConnection.HTTP_NOT_FOUND, "{\"message\":\"branch does not exist\"}");
+        enqueue(HttpURLConnection.HTTP_OK, """
+                {"name":"nifi-flows","empty":true,"permissions":{"push":true,"pull":true}}""");
+
+        assertTrue(client.getTopLevelDirectoryNames(BRANCH).isEmpty());
     }
 
     @Test
